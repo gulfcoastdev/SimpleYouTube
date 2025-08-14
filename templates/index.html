@@ -284,11 +284,28 @@
     <script>
         let currentTranscript = '';
         
+        // Logging utility
+        function log(level, message, data = null) {
+            const timestamp = new Date().toISOString();
+            const logMessage = `[${timestamp}] [${level.toUpperCase()}] ${message}`;
+            
+            if (level === 'error') {
+                console.error(logMessage, data);
+            } else if (level === 'warn') {
+                console.warn(logMessage, data);
+            } else {
+                console.log(logMessage, data);
+            }
+        }
+        
         async function extractTranscript() {
             const urlInput = document.getElementById('youtube-url');
             const url = urlInput.value.trim();
             
+            log('info', 'Extract transcript request initiated', { url });
+            
             if (!url) {
+                log('warn', 'Extract transcript failed: empty URL');
                 showError('Please enter a YouTube URL');
                 return;
             }
@@ -297,7 +314,11 @@
             showLoading(true);
             hideTranscript();
             
+            const startTime = performance.now();
+            
             try {
+                log('info', 'Sending transcript API request', { url });
+                
                 const response = await fetch('/get_transcript', {
                     method: 'POST',
                     headers: {
@@ -306,17 +327,45 @@
                     body: JSON.stringify({ url: url })
                 });
                 
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+                
+                log('info', `Transcript API response received (${duration}ms)`, { 
+                    status: response.status,
+                    statusText: response.statusText
+                });
+                
                 const data = await response.json();
                 
                 if (data.success) {
+                    log('info', 'Transcript extraction successful', {
+                        video_id: data.video_id,
+                        proxy_enabled: data.proxy_enabled,
+                        countries: data.countries,
+                        transcript_length: data.transcript.length,
+                        full_text_length: data.full_text.length,
+                        duration_ms: duration
+                    });
+                    
                     currentTranscript = data.full_text;
                     displayTranscript(data.full_text);
                     showProxyStatus(data.proxy_enabled, data.countries || []);
                     showTranscript();
                 } else {
+                    log('error', 'Transcript extraction failed', { 
+                        error: data.error,
+                        duration_ms: duration
+                    });
                     showError(data.error || 'Failed to extract transcript');
                 }
             } catch (error) {
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+                
+                log('error', 'Network error during transcript extraction', {
+                    error: error.message,
+                    duration_ms: duration
+                });
                 showError('Network error: ' + error.message);
             } finally {
                 showLoading(false);
@@ -350,14 +399,24 @@
         }
         
         function copyTranscript() {
+            log('info', 'Copy transcript requested', { 
+                transcript_length: currentTranscript ? currentTranscript.length : 0 
+            });
+            
             if (!currentTranscript) {
+                log('warn', 'Copy failed: no transcript available');
                 showCopyMessage('No transcript to copy', 'error');
                 return;
             }
             
             navigator.clipboard.writeText(currentTranscript).then(() => {
+                log('info', 'Transcript copied successfully via Clipboard API', {
+                    transcript_length: currentTranscript.length
+                });
                 showCopyMessage('Transcript copied to clipboard!', 'success');
             }).catch(() => {
+                log('warn', 'Clipboard API failed, falling back to execCommand');
+                
                 // Fallback for older browsers
                 const textArea = document.createElement('textarea');
                 textArea.value = currentTranscript;
@@ -365,8 +424,12 @@
                 textArea.select();
                 try {
                     document.execCommand('copy');
+                    log('info', 'Transcript copied successfully via execCommand fallback', {
+                        transcript_length: currentTranscript.length
+                    });
                     showCopyMessage('Transcript copied to clipboard!', 'success');
                 } catch (err) {
+                    log('error', 'Copy failed with both methods', { error: err.message });
                     showCopyMessage('Failed to copy transcript', 'error');
                 }
                 document.body.removeChild(textArea);
@@ -374,6 +437,12 @@
         }
         
         function showProxyStatus(proxyEnabled, countries = []) {
+            log('info', 'Updating proxy status display', { 
+                proxyEnabled, 
+                countries,
+                source: 'manual_update'
+            });
+            
             const container = document.getElementById('proxy-status-container');
             const statusClass = proxyEnabled ? 'proxy-enabled' : 'proxy-disabled';
             const icon = proxyEnabled ? '🛡️' : '🌐';
@@ -392,11 +461,37 @@
         }
         
         async function loadProxyStatus() {
+            log('info', 'Loading proxy status on page load');
+            const startTime = performance.now();
+            
             try {
                 const response = await fetch('/proxy_status');
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+                
+                log('info', `Proxy status API response received (${duration}ms)`, {
+                    status: response.status,
+                    statusText: response.statusText
+                });
+                
                 const data = await response.json();
+                
+                log('info', 'Proxy status loaded successfully', {
+                    proxy_enabled: data.proxy_enabled,
+                    countries: data.countries,
+                    duration_ms: duration
+                });
+                
                 showProxyStatus(data.proxy_enabled, data.countries);
             } catch (error) {
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+                
+                log('error', 'Failed to load proxy status', {
+                    error: error.message,
+                    duration_ms: duration
+                });
+                
                 // Fallback - show unknown status
                 const container = document.getElementById('proxy-status-container');
                 container.innerHTML = `
@@ -409,6 +504,8 @@
         }
         
         function clearTranscript() {
+            log('info', 'Clearing transcript and resetting UI');
+            
             currentTranscript = '';
             document.getElementById('transcript-content').textContent = '';
             // Keep proxy status visible, just reload it
@@ -431,6 +528,10 @@
         
         // Load proxy status when page loads
         document.addEventListener('DOMContentLoaded', function() {
+            log('info', 'DOM content loaded - initializing application');
+            log('info', 'User agent', { userAgent: navigator.userAgent });
+            log('info', 'Page URL', { url: window.location.href });
+            
             loadProxyStatus();
         });
         
