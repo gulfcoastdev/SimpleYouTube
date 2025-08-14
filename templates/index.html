@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Transcript Extractor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: #ff0000;
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            margin-bottom: 10px;
+            font-size: 2.2em;
+        }
+        
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .input-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+        }
+        
+        input[type="url"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="url"]:focus {
+            outline: none;
+            border-color: #ff0000;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+        
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: #ff0000;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #cc0000;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #545b62;
+        }
+        
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #218838;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+            color: #666;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #ff0000;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .transcript-container {
+            display: none;
+        }
+        
+        .transcript-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .transcript-controls {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .transcript-content {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            line-height: 1.8;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            border-left: 4px solid #dc3545;
+        }
+        
+        .success-message {
+            background: #d4edda;
+            color: #155724;
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        
+        @media (max-width: 600px) {
+            .button-group {
+                flex-direction: column;
+            }
+            
+            .transcript-header {
+                flex-direction: column;
+                gap: 15px;
+                align-items: stretch;
+            }
+            
+            .transcript-controls {
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>YouTube Transcript Extractor</h1>
+            <p>Extract transcripts from YouTube videos instantly</p>
+        </div>
+        
+        <div class="content">
+            <div class="input-group">
+                <label for="youtube-url">YouTube Video URL</label>
+                <input 
+                    type="url" 
+                    id="youtube-url" 
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    autocomplete="off"
+                >
+            </div>
+            
+            <div class="button-group">
+                <button class="btn-primary" onclick="extractTranscript()">
+                    Extract Transcript
+                </button>
+            </div>
+            
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                Extracting transcript...
+            </div>
+            
+            <div id="error-container"></div>
+            
+            <div class="transcript-container" id="transcript-container">
+                <div class="transcript-header">
+                    <h3>Transcript</h3>
+                    <div class="transcript-controls">
+                        <button class="btn-success" onclick="copyTranscript()">
+                            Copy
+                        </button>
+                        <button class="btn-secondary" onclick="clearTranscript()">
+                            Clear
+                        </button>
+                    </div>
+                </div>
+                <div class="transcript-content" id="transcript-content"></div>
+                <div id="copy-message"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentTranscript = '';
+        
+        async function extractTranscript() {
+            const urlInput = document.getElementById('youtube-url');
+            const url = urlInput.value.trim();
+            
+            if (!url) {
+                showError('Please enter a YouTube URL');
+                return;
+            }
+            
+            clearError();
+            showLoading(true);
+            hideTranscript();
+            
+            try {
+                const response = await fetch('/get_transcript', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ url: url })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentTranscript = data.full_text;
+                    displayTranscript(data.full_text);
+                    showTranscript();
+                } else {
+                    showError(data.error || 'Failed to extract transcript');
+                }
+            } catch (error) {
+                showError('Network error: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+        
+        function displayTranscript(transcript) {
+            const container = document.getElementById('transcript-content');
+            container.textContent = transcript;
+        }
+        
+        function showTranscript() {
+            document.getElementById('transcript-container').style.display = 'block';
+        }
+        
+        function hideTranscript() {
+            document.getElementById('transcript-container').style.display = 'none';
+        }
+        
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+        
+        function showError(message) {
+            const container = document.getElementById('error-container');
+            container.innerHTML = `<div class="error">${message}</div>`;
+        }
+        
+        function clearError() {
+            document.getElementById('error-container').innerHTML = '';
+        }
+        
+        function copyTranscript() {
+            if (!currentTranscript) {
+                showCopyMessage('No transcript to copy', 'error');
+                return;
+            }
+            
+            navigator.clipboard.writeText(currentTranscript).then(() => {
+                showCopyMessage('Transcript copied to clipboard!', 'success');
+            }).catch(() => {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = currentTranscript;
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    showCopyMessage('Transcript copied to clipboard!', 'success');
+                } catch (err) {
+                    showCopyMessage('Failed to copy transcript', 'error');
+                }
+                document.body.removeChild(textArea);
+            });
+        }
+        
+        function clearTranscript() {
+            currentTranscript = '';
+            document.getElementById('transcript-content').textContent = '';
+            hideTranscript();
+            document.getElementById('youtube-url').value = '';
+            clearError();
+            document.getElementById('copy-message').innerHTML = '';
+        }
+        
+        function showCopyMessage(message, type) {
+            const container = document.getElementById('copy-message');
+            const className = type === 'success' ? 'success-message' : 'error';
+            container.innerHTML = `<div class="${className}">${message}</div>`;
+            
+            setTimeout(() => {
+                container.innerHTML = '';
+            }, 3000);
+        }
+        
+        // Allow Enter key to submit
+        document.getElementById('youtube-url').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                extractTranscript();
+            }
+        });
+    </script>
+</body>
+</html>
