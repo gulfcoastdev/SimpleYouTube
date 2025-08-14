@@ -56,8 +56,24 @@ def get_transcript():
             os.environ['HTTP_PROXY'] = proxy_config['http']
             os.environ['HTTPS_PROXY'] = proxy_config['https']
         
-        # Get transcript
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+        # Get transcript - try multiple languages if needed
+        try:
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+        except Exception as e:
+            # Try to get available transcript languages
+            try:
+                transcript_list_obj = YouTubeTranscriptApi.list_transcripts(video_id)
+                # Try to get the first available transcript
+                transcript = transcript_list_obj.find_transcript(['en', 'en-US', 'en-GB'])
+                transcript_list = transcript.fetch()
+            except Exception as e2:
+                # If that fails, try any available language
+                try:
+                    transcript_list_obj = YouTubeTranscriptApi.list_transcripts(video_id)
+                    transcript = next(iter(transcript_list_obj))
+                    transcript_list = transcript.fetch()
+                except Exception as e3:
+                    raise Exception(f"No transcripts available for this video. Original error: {str(e)}")
         
         # Format transcript
         formatted_transcript = []
