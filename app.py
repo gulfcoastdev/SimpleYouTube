@@ -4,6 +4,10 @@ from flask import Flask, render_template, request, jsonify
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.proxies import WebshareProxyConfig
 import requests
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -32,11 +36,28 @@ def get_webshare_proxy_config():
         if webshare_countries:
             filter_countries = [country.strip().lower() for country in webshare_countries.split(',')]
         
-        return WebshareProxyConfig(
+        config = WebshareProxyConfig(
             proxy_username=webshare_username,
-            proxy_password=webshare_password,
-            filter_ip_locations=filter_countries
+            proxy_password=webshare_password
         )
+        
+        # Set filter_ip_locations if provided (this sets the private _filter_ip_locations attribute)
+        if filter_countries:
+            # Check if the constructor accepts filter_ip_locations
+            try:
+                config = WebshareProxyConfig(
+                    proxy_username=webshare_username,
+                    proxy_password=webshare_password,
+                    filter_ip_locations=filter_countries
+                )
+            except TypeError:
+                # If not supported, create without filtering
+                config = WebshareProxyConfig(
+                    proxy_username=webshare_username,
+                    proxy_password=webshare_password
+                )
+        
+        return config
     return None
 
 @app.route('/')
@@ -50,8 +71,8 @@ def proxy_status():
     proxy_enabled = proxy_config is not None
     
     countries = []
-    if proxy_config and proxy_config.filter_ip_locations:
-        countries = proxy_config.filter_ip_locations
+    if proxy_config and hasattr(proxy_config, '_filter_ip_locations') and proxy_config._filter_ip_locations:
+        countries = proxy_config._filter_ip_locations
     
     return jsonify({
         'proxy_enabled': proxy_enabled,
@@ -75,8 +96,8 @@ def get_transcript():
         proxy_config = get_webshare_proxy_config()
         proxy_enabled = proxy_config is not None
         countries = []
-        if proxy_config and proxy_config.filter_ip_locations:
-            countries = proxy_config.filter_ip_locations
+        if proxy_config and hasattr(proxy_config, '_filter_ip_locations') and proxy_config._filter_ip_locations:
+            countries = proxy_config._filter_ip_locations
         
         # Get transcript using the correct API for version 1.2.2
         try:

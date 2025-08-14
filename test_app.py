@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-Simple test script for the YouTube Transcript Extractor API
+Comprehensive test script for the YouTube Transcript Extractor API
 """
 
 import requests
 import json
+import sys
+import traceback
 
 # Configuration
 BASE_URL = "http://127.0.0.1:8000"
@@ -14,6 +16,33 @@ TEST_URLS = [
     "https://youtu.be/aircAruvnKk",                # Short format
     "invalid-url",                                  # Invalid URL test
 ]
+
+def test_imports():
+    """Test that the Flask app imports work correctly"""
+    print("Testing Python imports...")
+    try:
+        import sys
+        sys.path.insert(0, '.')
+        
+        # Test individual imports
+        from dotenv import load_dotenv
+        print("✅ dotenv import successful")
+        
+        from youtube_transcript_api import YouTubeTranscriptApi
+        print("✅ YouTubeTranscriptApi import successful")
+        
+        from youtube_transcript_api.proxies import WebshareProxyConfig
+        print("✅ WebshareProxyConfig import successful")
+        
+        # Test app import
+        import app
+        print("✅ Flask app import successful")
+        
+        return True
+    except Exception as e:
+        print(f"❌ Import error: {e}")
+        traceback.print_exc()
+        return False
 
 def test_transcript_extraction(url):
     """Test transcript extraction for a given URL"""
@@ -80,13 +109,51 @@ def test_server_health():
         print("Make sure to run: source venv/bin/activate && PORT=8000 python app.py")
         return False
 
+def test_proxy_status_endpoint():
+    """Test the proxy status endpoint specifically"""
+    print("\nTesting /proxy_status endpoint...")
+    try:
+        response = requests.get(f"{BASE_URL}/proxy_status", timeout=10)
+        print(f"Status Code: {response.status_code}")
+        print(f"Content-Type: {response.headers.get('content-type', 'unknown')}")
+        print(f"Response length: {len(response.text)} chars")
+        
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                print("✅ Valid JSON response")
+                print(f"Proxy enabled: {data.get('proxy_enabled')}")
+                print(f"Countries: {data.get('countries')}")
+                return True
+            except json.JSONDecodeError as e:
+                print("❌ Invalid JSON response")
+                print(f"First 200 chars: {response.text[:200]}")
+                return False
+        else:
+            print(f"❌ HTTP Error {response.status_code}")
+            print(f"Response: {response.text[:200]}")
+            return False
+    except Exception as e:
+        print(f"❌ Request failed: {e}")
+        return False
+
 def main():
     """Run all tests"""
     print("YouTube Transcript Extractor - Test Suite")
     print("=" * 60)
     
-    # Test server health first
+    # Test imports first
+    if not test_imports():
+        print("❌ Import tests failed - server likely has import errors")
+        return
+    
+    # Test server health
     if not test_server_health():
+        return
+    
+    # Test proxy status endpoint specifically
+    if not test_proxy_status_endpoint():
+        print("❌ Proxy status endpoint failed")
         return
     
     # Test transcript extraction
