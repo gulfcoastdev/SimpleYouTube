@@ -43,6 +43,21 @@ def get_webshare_proxy_config():
 def index():
     return render_template('index.html')
 
+@app.route('/proxy_status')
+def proxy_status():
+    """Get current proxy configuration status"""
+    proxy_config = get_webshare_proxy_config()
+    proxy_enabled = proxy_config is not None
+    
+    countries = []
+    if proxy_config and proxy_config.filter_ip_locations:
+        countries = proxy_config.filter_ip_locations
+    
+    return jsonify({
+        'proxy_enabled': proxy_enabled,
+        'countries': countries
+    })
+
 @app.route('/get_transcript', methods=['POST'])
 def get_transcript():
     try:
@@ -59,6 +74,9 @@ def get_transcript():
         # Configure Webshare proxy if available
         proxy_config = get_webshare_proxy_config()
         proxy_enabled = proxy_config is not None
+        countries = []
+        if proxy_config and proxy_config.filter_ip_locations:
+            countries = proxy_config.filter_ip_locations
         
         # Get transcript using the correct API for version 1.2.2
         try:
@@ -99,7 +117,8 @@ def get_transcript():
             'video_id': video_id,
             'transcript': formatted_transcript,
             'full_text': full_text,
-            'proxy_enabled': proxy_enabled
+            'proxy_enabled': proxy_enabled,
+            'countries': countries
         })
         
     except Exception as e:

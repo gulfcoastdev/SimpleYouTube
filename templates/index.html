@@ -259,10 +259,11 @@
                 Extracting transcript...
             </div>
             
+            <div id="proxy-status-container"></div>
+            
             <div id="error-container"></div>
             
             <div class="transcript-container" id="transcript-container">
-                <div id="proxy-status-container"></div>
                 <div class="transcript-header">
                     <h3>Transcript</h3>
                     <div class="transcript-controls">
@@ -310,7 +311,7 @@
                 if (data.success) {
                     currentTranscript = data.full_text;
                     displayTranscript(data.full_text);
-                    showProxyStatus(data.proxy_enabled);
+                    showProxyStatus(data.proxy_enabled, data.countries || []);
                     showTranscript();
                 } else {
                     showError(data.error || 'Failed to extract transcript');
@@ -372,11 +373,15 @@
             });
         }
         
-        function showProxyStatus(proxyEnabled) {
+        function showProxyStatus(proxyEnabled, countries = []) {
             const container = document.getElementById('proxy-status-container');
             const statusClass = proxyEnabled ? 'proxy-enabled' : 'proxy-disabled';
             const icon = proxyEnabled ? '🛡️' : '🌐';
-            const text = proxyEnabled ? 'Webshare Proxy Active' : 'Direct Connection';
+            
+            let text = proxyEnabled ? 'Webshare Proxy Active' : 'Direct Connection';
+            if (proxyEnabled && countries.length > 0) {
+                text += ` (${countries.map(c => c.toUpperCase()).join(', ')})`;
+            }
             
             container.innerHTML = `
                 <div class="proxy-status ${statusClass}">
@@ -386,10 +391,28 @@
             `;
         }
         
+        async function loadProxyStatus() {
+            try {
+                const response = await fetch('/proxy_status');
+                const data = await response.json();
+                showProxyStatus(data.proxy_enabled, data.countries);
+            } catch (error) {
+                // Fallback - show unknown status
+                const container = document.getElementById('proxy-status-container');
+                container.innerHTML = `
+                    <div class="proxy-status proxy-disabled">
+                        <span class="proxy-icon">❓</span>
+                        <span>Status Unknown</span>
+                    </div>
+                `;
+            }
+        }
+        
         function clearTranscript() {
             currentTranscript = '';
             document.getElementById('transcript-content').textContent = '';
-            document.getElementById('proxy-status-container').innerHTML = '';
+            // Keep proxy status visible, just reload it
+            loadProxyStatus();
             hideTranscript();
             document.getElementById('youtube-url').value = '';
             clearError();
@@ -405,6 +428,11 @@
                 container.innerHTML = '';
             }, 3000);
         }
+        
+        // Load proxy status when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            loadProxyStatus();
+        });
         
         // Allow Enter key to submit
         document.getElementById('youtube-url').addEventListener('keypress', function(e) {
