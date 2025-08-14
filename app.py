@@ -2,6 +2,7 @@ import os
 import re
 from flask import Flask, render_template, request, jsonify
 from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api.proxies import WebshareProxyConfig
 import requests
 
 app = Flask(__name__)
@@ -19,17 +20,23 @@ def extract_video_id(url):
             return match.group(1)
     return None
 
-def get_proxy_config():
-    """Get proxy configuration from environment variables"""
+def get_webshare_proxy_config():
+    """Get Webshare proxy configuration from environment variables"""
     webshare_username = os.environ.get('WEBSHARE_USERNAME')
     webshare_password = os.environ.get('WEBSHARE_PASSWORD')
-    webshare_endpoint = os.environ.get('WEBSHARE_ENDPOINT')
+    webshare_countries = os.environ.get('WEBSHARE_COUNTRIES', '').strip()
     
-    if all([webshare_username, webshare_password, webshare_endpoint]):
-        return {
-            'http': f'http://{webshare_username}:{webshare_password}@{webshare_endpoint}',
-            'https': f'http://{webshare_username}:{webshare_password}@{webshare_endpoint}'
-        }
+    if all([webshare_username, webshare_password]):
+        # Parse countries filter if provided (comma-separated)
+        filter_countries = None
+        if webshare_countries:
+            filter_countries = [country.strip().lower() for country in webshare_countries.split(',')]
+        
+        return WebshareProxyConfig(
+            proxy_username=webshare_username,
+            proxy_password=webshare_password,
+            filter_ip_locations=filter_countries
+        )
     return None
 
 @app.route('/')
@@ -49,49 +56,50 @@ def get_transcript():
         if not video_id:
             return jsonify({'error': 'Invalid YouTube URL'}), 400
         
-        # Configure proxy if available
-        proxy_config = get_proxy_config()
-        if proxy_config:
-            # Set proxy for requests (used by youtube-transcript-api)
-            os.environ['HTTP_PROXY'] = proxy_config['http']
-            os.environ['HTTPS_PROXY'] = proxy_config['https']
+        # Configure Webshare proxy if available
+        proxy_config = get_webshare_proxy_config()
+        proxy_enabled = proxy_config is not None
         
-        # Get transcript - try multiple languages if needed
+        # Get transcript using the correct API for version 1.2.2
         try:
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
-        except Exception as e:
-            # Try to get available transcript languages
+            # Create YouTubeTranscriptApi instance with optional proxy
+            if proxy_config:
+                ytt_api = YouTubeTranscriptApi(proxy_config=proxy_config)
+            else:
+                ytt_api = YouTubeTranscriptApi()
+            
+            # Try to fetch transcript directly with language preferences
             try:
-                transcript_list_obj = YouTubeTranscriptApi.list_transcripts(video_id)
-                # Try to get the first available transcript
-                transcript = transcript_list_obj.find_transcript(['en', 'en-US', 'en-GB'])
-                transcript_list = transcript.fetch()
-            except Exception as e2:
-                # If that fails, try any available language
-                try:
-                    transcript_list_obj = YouTubeTranscriptApi.list_transcripts(video_id)
-                    transcript = next(iter(transcript_list_obj))
-                    transcript_list = transcript.fetch()
-                except Exception as e3:
-                    raise Exception(f"No transcripts available for this video. Original error: {str(e)}")
+                fetched_transcript = ytt_api.fetch(video_id, languages=['en', 'en-US', 'en-GB'])
+                transcript_list = fetched_transcript.snippets
+            except:
+                # If specific languages fail, try to get any available transcript
+                transcript_list_obj = ytt_api.list(video_id)
+                transcript = next(iter(transcript_list_obj))
+                fetched_transcript = transcript.fetch()
+                transcript_list = fetched_transcript.snippets
+                
+        except Exception as e:
+            raise Exception(f"Could not retrieve transcript: {str(e)}")
         
-        # Format transcript
+        # Format transcript - transcript_list contains FetchedTranscriptSnippet objects
         formatted_transcript = []
         for entry in transcript_list:
             formatted_transcript.append({
-                'start': entry['start'],
-                'duration': entry['duration'],
-                'text': entry['text']
+                'start': entry.start,
+                'duration': entry.duration,
+                'text': entry.text
             })
         
         # Create full text version
-        full_text = ' '.join([entry['text'] for entry in transcript_list])
+        full_text = ' '.join([entry.text for entry in transcript_list])
         
         return jsonify({
             'success': True,
             'video_id': video_id,
             'transcript': formatted_transcript,
-            'full_text': full_text
+            'full_text': full_text,
+            'proxy_enabled': proxy_enabled
         })
         
     except Exception as e:

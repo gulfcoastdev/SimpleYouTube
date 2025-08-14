@@ -185,6 +185,34 @@
             font-size: 14px;
         }
         
+        .proxy-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 15px;
+        }
+        
+        .proxy-enabled {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        
+        .proxy-disabled {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .proxy-icon {
+            width: 16px;
+            height: 16px;
+        }
+        
         @media (max-width: 600px) {
             .button-group {
                 flex-direction: column;
@@ -234,6 +262,7 @@
             <div id="error-container"></div>
             
             <div class="transcript-container" id="transcript-container">
+                <div id="proxy-status-container"></div>
                 <div class="transcript-header">
                     <h3>Transcript</h3>
                     <div class="transcript-controls">
@@ -281,6 +310,7 @@
                 if (data.success) {
                     currentTranscript = data.full_text;
                     displayTranscript(data.full_text);
+                    showProxyStatus(data.proxy_enabled);
                     showTranscript();
                 } else {
                     showError(data.error || 'Failed to extract transcript');
@@ -342,9 +372,24 @@
             });
         }
         
+        function showProxyStatus(proxyEnabled) {
+            const container = document.getElementById('proxy-status-container');
+            const statusClass = proxyEnabled ? 'proxy-enabled' : 'proxy-disabled';
+            const icon = proxyEnabled ? '🛡️' : '🌐';
+            const text = proxyEnabled ? 'Webshare Proxy Active' : 'Direct Connection';
+            
+            container.innerHTML = `
+                <div class="proxy-status ${statusClass}">
+                    <span class="proxy-icon">${icon}</span>
+                    <span>${text}</span>
+                </div>
+            `;
+        }
+        
         function clearTranscript() {
             currentTranscript = '';
             document.getElementById('transcript-content').textContent = '';
+            document.getElementById('proxy-status-container').innerHTML = '';
             hideTranscript();
             document.getElementById('youtube-url').value = '';
             clearError();
