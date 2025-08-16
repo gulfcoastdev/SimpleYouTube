@@ -74,6 +74,58 @@
             border-color: #ff0000;
         }
         
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 120px;
+            transition: border-color 0.3s;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: #ff0000;
+        }
+        
+        .input-tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #eee;
+        }
+        
+        .tab-button {
+            padding: 12px 20px;
+            background: none;
+            border: none;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            color: #666;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+        
+        .tab-button.active {
+            color: #ff0000;
+            border-bottom-color: #ff0000;
+        }
+        
+        .tab-button:hover {
+            color: #ff0000;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
         .button-group {
             display: flex;
             gap: 10px;
@@ -301,30 +353,54 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>YouTube Transcript Extractor</h1>
-            <p>Extract transcripts from YouTube videos instantly</p>
+            <h1>AI Text Summarizer</h1>
+            <p>Extract YouTube transcripts or paste any text for AI summarization</p>
         </div>
         
         <div class="content">
-            <div class="input-group">
-                <label for="youtube-url">YouTube Video URL</label>
-                <input 
-                    type="url" 
-                    id="youtube-url" 
-                    placeholder="https://www.youtube.com/watch?v=..."
-                    autocomplete="off"
-                >
+            <div class="input-tabs">
+                <button class="tab-button active" onclick="switchTab('video')">YouTube Video</button>
+                <button class="tab-button" onclick="switchTab('text')">Paste Text</button>
             </div>
             
-            <div class="button-group">
-                <button class="btn-primary" onclick="extractTranscript()">
-                    Extract Transcript
-                </button>
+            <div id="video-tab" class="tab-content active">
+                <div class="input-group">
+                    <label for="youtube-url">YouTube Video URL</label>
+                    <input 
+                        type="url" 
+                        id="youtube-url" 
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        autocomplete="off"
+                    >
+                </div>
+                
+                <div class="button-group">
+                    <button class="btn-primary" onclick="extractTranscript()">
+                        Extract Transcript
+                    </button>
+                </div>
+            </div>
+            
+            <div id="text-tab" class="tab-content">
+                <div class="input-group">
+                    <label for="manual-text">Text to Summarize</label>
+                    <textarea 
+                        id="manual-text" 
+                        placeholder="Paste your text here to get an AI summary..."
+                        rows="8"
+                    ></textarea>
+                </div>
+                
+                <div class="button-group">
+                    <button class="btn-primary" onclick="summarizeManualText()">
+                        Summarize Text
+                    </button>
+                </div>
             </div>
             
             <div class="loading" id="loading">
                 <div class="spinner"></div>
-                Extracting transcript...
+                <span id="loading-text">Processing...</span>
             </div>
             
             <div id="proxy-status-container"></div>
@@ -334,7 +410,7 @@
             
             <div class="transcript-container" id="transcript-container">
                 <div class="transcript-header">
-                    <h3>Transcript</h3>
+                    <h3>Text to Summarize</h3>
                     <div class="transcript-controls">
                         <button class="btn-info" onclick="summarizeTranscript()">
                             Summarize
@@ -370,6 +446,132 @@
         let currentTranscript = '';
         let currentSummary = '';
         
+        // Tab switching functionality
+        function switchTab(tabName) {
+            // Remove active class from all tabs and buttons
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            // Add active class to selected tab and button
+            document.querySelector(`[onclick="switchTab('${tabName}')"]`).classList.add('active');
+            document.getElementById(`${tabName}-tab`).classList.add('active');
+            
+            // Clear any existing content and errors
+            clearError();
+            hideTranscript();
+            hideSummary();
+        }
+        
+        // Manual text summarization
+        async function summarizeManualText() {
+            const textInput = document.getElementById('manual-text');
+            const text = textInput.value.trim();
+            
+            log('info', 'Manual text summarization requested', { 
+                text_length: text ? text.length : 0 
+            });
+            
+            if (!text) {
+                log('warn', 'Manual text summarization failed: empty text');
+                showError('Please enter some text to summarize');
+                return;
+            }
+            
+            clearError();
+            showLoading(true, 'AI Summarizing...');
+            hideSummary();
+            
+            // Set the text as current transcript for display purposes
+            currentTranscript = text;
+            displayTranscript(text);
+            showTranscript();
+            
+            // Now summarize it
+            await summarizeCurrentText();
+        }
+        
+        // Generalized summarization function
+        async function summarizeCurrentText() {
+            if (!currentTranscript) {
+                showError('No text available to summarize');
+                return;
+            }
+            
+            const startTime = performance.now();
+            
+            try {
+                log('info', 'Sending summarization API request', { 
+                    transcript_length: currentTranscript.length 
+                });
+                
+                const response = await fetch('/summarize_transcript', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ text: currentTranscript })
+                });
+                
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+                
+                log('info', `Summarization API response received (${duration}ms)`, { 
+                    status: response.status,
+                    statusText: response.statusText
+                });
+                
+                const data = await response.json();
+                
+                // Always update rate limit counter from response headers
+                updateRateLimitFromHeaders(response.headers);
+                
+                if (response.status === 429) {
+                    // Rate limit exceeded
+                    log('warn', 'Rate limit exceeded during summarization', {
+                        error: data.error,
+                        retry_after: data.retry_after,
+                        duration_ms: duration
+                    });
+                    
+                    const retryDate = new Date(data.retry_after * 1000);
+                    const hoursLeft = Math.ceil((retryDate - new Date()) / (1000 * 60 * 60));
+                    
+                    showError(`${data.message} Reset in ${hoursLeft} hours.`);
+                } else if (data.success) {
+                    log('info', 'Summarization successful', {
+                        model_used: data.model_used,
+                        tokens_used: data.tokens_used,
+                        summary_length: data.summary.length,
+                        duration_ms: duration
+                    });
+                    
+                    currentSummary = data.summary;
+                    displaySummary(data.summary);
+                    showSummary();
+                    
+                    // Show summary success message
+                    showSummaryMessage(`Summary generated using ${data.model_used}${data.tokens_used ? ` (${data.tokens_used} tokens)` : ''}`, 'success');
+                } else {
+                    log('error', 'Summarization failed', { 
+                        error: data.error,
+                        duration_ms: duration
+                    });
+                    showError(data.error || 'Failed to generate summary');
+                }
+            } catch (error) {
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+                
+                log('error', 'Network error during summarization', {
+                    error: error.message,
+                    duration_ms: duration
+                });
+                showError('Network error: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+        
         // Logging utility
         function log(level, message, data = null) {
             const timestamp = new Date().toISOString();
@@ -397,7 +599,7 @@
             }
             
             clearError();
-            showLoading(true);
+            showLoading(true, 'Extracting transcript...');
             hideTranscript();
             hideSummary();
             
@@ -509,8 +711,16 @@
             document.getElementById('summary-container').style.display = 'none';
         }
         
-        function showLoading(show) {
-            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        function showLoading(show, message = 'Processing...') {
+            const loadingDiv = document.getElementById('loading');
+            const loadingText = document.getElementById('loading-text');
+            
+            if (show) {
+                loadingText.textContent = message;
+                loadingDiv.style.display = 'block';
+            } else {
+                loadingDiv.style.display = 'none';
+            }
         }
         
         function showError(message) {
@@ -707,81 +917,9 @@
             }
             
             clearError();
-            showLoading(true);
+            showLoading(true, 'AI Summarizing...');
             
-            const startTime = performance.now();
-            
-            try {
-                log('info', 'Sending summarization API request', { 
-                    transcript_length: currentTranscript.length 
-                });
-                
-                const response = await fetch('/summarize_transcript', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ text: currentTranscript })
-                });
-                
-                const endTime = performance.now();
-                const duration = Math.round(endTime - startTime);
-                
-                log('info', `Summarization API response received (${duration}ms)`, { 
-                    status: response.status,
-                    statusText: response.statusText
-                });
-                
-                const data = await response.json();
-                
-                // Always update rate limit counter from response headers
-                updateRateLimitFromHeaders(response.headers);
-                
-                if (response.status === 429) {
-                    // Rate limit exceeded
-                    log('warn', 'Rate limit exceeded during summarization', {
-                        error: data.error,
-                        retry_after: data.retry_after,
-                        duration_ms: duration
-                    });
-                    
-                    const retryDate = new Date(data.retry_after * 1000);
-                    const hoursLeft = Math.ceil((retryDate - new Date()) / (1000 * 60 * 60));
-                    
-                    showError(`${data.message} Reset in ${hoursLeft} hours.`);
-                } else if (data.success) {
-                    log('info', 'Summarization successful', {
-                        model_used: data.model_used,
-                        tokens_used: data.tokens_used,
-                        summary_length: data.summary.length,
-                        duration_ms: duration
-                    });
-                    
-                    currentSummary = data.summary;
-                    displaySummary(data.summary);
-                    showSummary();
-                    
-                    // Show summary success message
-                    showSummaryMessage(`Summary generated using ${data.model_used}${data.tokens_used ? ` (${data.tokens_used} tokens)` : ''}`, 'success');
-                } else {
-                    log('error', 'Summarization failed', { 
-                        error: data.error,
-                        duration_ms: duration
-                    });
-                    showError(data.error || 'Failed to generate summary');
-                }
-            } catch (error) {
-                const endTime = performance.now();
-                const duration = Math.round(endTime - startTime);
-                
-                log('error', 'Network error during summarization', {
-                    error: error.message,
-                    duration_ms: duration
-                });
-                showError('Network error: ' + error.message);
-            } finally {
-                showLoading(false);
-            }
+            await summarizeCurrentText();
         }
         
         function displaySummary(summary) {
@@ -849,6 +987,7 @@
             hideTranscript();
             hideSummary();
             document.getElementById('youtube-url').value = '';
+            document.getElementById('manual-text').value = '';
             clearError();
             document.getElementById('copy-message').innerHTML = '';
             document.getElementById('summary-message').innerHTML = '';

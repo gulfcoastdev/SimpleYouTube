@@ -366,6 +366,40 @@ def admin_rate_limit_status():
     except Exception as e:
         return jsonify({'error': f'Failed to get status: {str(e)}'}), 500
 
+@app.route('/admin/reset_rate_limit', methods=['POST'])
+def admin_reset_rate_limit():
+    """Admin endpoint to reset rate limit for an IP"""
+    if not ADMIN_TOKEN:
+        return jsonify({'error': 'Admin functionality disabled'}), 503
+
+    auth_token = request.headers.get('X-Admin-Token')
+    if not auth_token or auth_token != ADMIN_TOKEN:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    if not redis_client:
+        return jsonify({'error': 'Redis not available'}), 503
+
+    try:
+        data = request.get_json() or {}
+        ip = data.get('ip')
+        if not ip:
+            return jsonify({'error': 'ip parameter required'}), 400
+
+        key = get_rate_limit_key(ip)
+        
+        # Delete the rate limit key to reset the counter
+        deleted = redis_client.delete(key)
+        
+        return jsonify({
+            'success': True,
+            'ip': ip,
+            'reset': bool(deleted),
+            'message': f'Rate limit reset for IP {ip}'
+        })
+
+    except Exception as e:
+        return jsonify({'error': f'Failed to reset rate limit: {str(e)}'}), 500
+
 @app.route('/get_transcript', methods=['POST'])
 def get_transcript():
     try:
