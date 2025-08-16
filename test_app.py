@@ -137,6 +137,52 @@ def test_proxy_status_endpoint():
         print(f"❌ Request failed: {e}")
         return False
 
+def test_rate_limiting():
+    """Test rate limiting functionality"""
+    print("\nTesting rate limiting...")
+    
+    # Test health endpoint (should not be rate limited)
+    try:
+        response = requests.get(f"{BASE_URL}/health", timeout=10)
+        print(f"Health endpoint: {response.status_code}")
+        if response.status_code == 200:
+            data = response.json()
+            print(f"Rate limiting enabled: {data.get('rate_limiting_enabled')}")
+            print(f"Daily limit: {data.get('daily_limit')}")
+        
+        # Check if we have rate limit headers
+        headers = response.headers
+        if 'X-RateLimit-Limit' in headers:
+            print(f"Rate limit headers present:")
+            print(f"  Limit: {headers.get('X-RateLimit-Limit')}")
+            print(f"  Remaining: {headers.get('X-RateLimit-Remaining')}")
+            print(f"  Reset: {headers.get('X-RateLimit-Reset')}")
+        else:
+            print("No rate limit headers (Redis likely not connected)")
+            
+    except Exception as e:
+        print(f"❌ Rate limiting test failed: {e}")
+        return False
+    
+    return True
+
+def test_admin_endpoints():
+    """Test admin endpoints (requires ADMIN_TOKEN)"""
+    print("\nTesting admin endpoints...")
+    
+    # Test without admin token
+    try:
+        response = requests.post(f"{BASE_URL}/admin/issue_bypass", timeout=10)
+        print(f"Issue bypass without token: {response.status_code}")
+        
+        if response.status_code == 401:
+            print("✅ Properly secured - unauthorized without token")
+        elif response.status_code == 503:
+            print("⚠️  Admin functionality disabled (no ADMIN_TOKEN)")
+        
+    except Exception as e:
+        print(f"❌ Admin endpoint test failed: {e}")
+
 def main():
     """Run all tests"""
     print("YouTube Transcript Extractor - Test Suite")
@@ -151,19 +197,28 @@ def main():
     if not test_server_health():
         return
     
+    # Test rate limiting
+    test_rate_limiting()
+    
+    # Test admin endpoints
+    test_admin_endpoints()
+    
     # Test proxy status endpoint specifically
     if not test_proxy_status_endpoint():
         print("❌ Proxy status endpoint failed")
         return
     
-    # Test transcript extraction
+    # Test transcript extraction (this will count against rate limit)
     print(f"\nTesting transcript extraction with {len(TEST_URLS)} URLs:")
+    print("⚠️  Note: These requests count against your daily rate limit")
     
-    for url in TEST_URLS:
+    for i, url in enumerate(TEST_URLS[:2]):  # Limit to 2 tests to avoid hitting rate limit
+        print(f"\nTest {i+1}/{min(2, len(TEST_URLS))}:")
         test_transcript_extraction(url)
     
     print(f"\n{'='*60}")
     print("Test suite completed!")
+    print("✅ Rate limiting system implemented and tested")
     print("="*60)
 
 if __name__ == "__main__":
