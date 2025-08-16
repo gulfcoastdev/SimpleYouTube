@@ -213,6 +213,42 @@
             height: 16px;
         }
         
+        .rate-limit-counter {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 15px;
+            margin-left: 10px;
+        }
+        
+        .rate-limit-ok {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .rate-limit-warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        
+        .rate-limit-danger {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .rate-limit-disabled {
+            background: #e2e3e5;
+            color: #6c757d;
+            border: 1px solid #d6d8db;
+        }
+        
         @media (max-width: 600px) {
             .button-group {
                 flex-direction: column;
@@ -260,6 +296,7 @@
             </div>
             
             <div id="proxy-status-container"></div>
+            <div id="rate-limit-counter-container"></div>
             
             <div id="error-container"></div>
             
@@ -337,7 +374,22 @@
                 
                 const data = await response.json();
                 
-                if (data.success) {
+                // Always update rate limit counter from response headers
+                updateRateLimitFromHeaders(response.headers);
+                
+                if (response.status === 429) {
+                    // Rate limit exceeded
+                    log('warn', 'Rate limit exceeded', {
+                        error: data.error,
+                        retry_after: data.retry_after,
+                        duration_ms: duration
+                    });
+                    
+                    const retryDate = new Date(data.retry_after * 1000);
+                    const hoursLeft = Math.ceil((retryDate - new Date()) / (1000 * 60 * 60));
+                    
+                    showError(`${data.message} Reset in ${hoursLeft} hours.`);
+                } else if (data.success) {
                     log('info', 'Transcript extraction successful', {
                         video_id: data.video_id,
                         proxy_enabled: data.proxy_enabled,
@@ -350,6 +402,10 @@
                     currentTranscript = data.full_text;
                     displayTranscript(data.full_text);
                     showProxyStatus(data.proxy_enabled, data.countries || []);
+                    
+                    // Update rate limit counter from response headers
+                    updateRateLimitFromHeaders(response.headers);
+                    
                     showTranscript();
                 } else {
                     log('error', 'Transcript extraction failed', { 
@@ -367,6 +423,16 @@
                     duration_ms: duration
                 });
                 showError('Network error: ' + error.message);
+                
+                // Try to update rate limit counter even on network errors
+                // (in case there was a partial response)
+                try {
+                    if (error.response && error.response.headers) {
+                        updateRateLimitFromHeaders(error.response.headers);
+                    }
+                } catch (e) {
+                    // Ignore header parsing errors
+                }
             } finally {
                 showLoading(false);
             }
@@ -460,6 +526,71 @@
             `;
         }
         
+        function showRateLimitCounter(remaining, limit, reset) {
+            log('info', 'Updating rate limit counter', { remaining, limit, reset });
+            
+            const container = document.getElementById('rate-limit-counter-container');
+            
+            if (remaining === null || limit === null) {
+                // Rate limiting disabled
+                container.innerHTML = `
+                    <div class="rate-limit-counter rate-limit-disabled">
+                        <span>⚡</span>
+                        <span>Unlimited Requests</span>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Determine status color based on remaining requests
+            let statusClass = 'rate-limit-ok';
+            let icon = '✅';
+            
+            if (remaining === 0) {
+                statusClass = 'rate-limit-danger';
+                icon = '🚫';
+            } else if (remaining <= Math.floor(limit * 0.2)) { // 20% or less remaining
+                statusClass = 'rate-limit-danger';
+                icon = '⚠️';
+            } else if (remaining <= Math.floor(limit * 0.5)) { // 50% or less remaining
+                statusClass = 'rate-limit-warning';
+                icon = '⚠️';
+            }
+            
+            let text = `${remaining}/${limit} requests left`;
+            
+            // Add reset time if available
+            if (reset) {
+                const resetDate = new Date(reset * 1000);
+                const now = new Date();
+                const hoursLeft = Math.ceil((resetDate - now) / (1000 * 60 * 60));
+                text += ` (resets in ${hoursLeft}h)`;
+            }
+            
+            container.innerHTML = `
+                <div class="rate-limit-counter ${statusClass}">
+                    <span>${icon}</span>
+                    <span>${text}</span>
+                </div>
+            `;
+        }
+        
+        function updateRateLimitFromHeaders(headers) {
+            const limit = headers.get('X-RateLimit-Limit');
+            const remaining = headers.get('X-RateLimit-Remaining');
+            const reset = headers.get('X-RateLimit-Reset');
+            
+            if (limit && remaining !== null) {
+                showRateLimitCounter(
+                    parseInt(remaining),
+                    parseInt(limit),
+                    reset ? parseInt(reset) : null
+                );
+            } else {
+                showRateLimitCounter(null, null, null);
+            }
+        }
+        
         async function loadProxyStatus() {
             log('info', 'Loading proxy status on page load');
             const startTime = performance.now();
@@ -483,6 +614,9 @@
                 });
                 
                 showProxyStatus(data.proxy_enabled, data.countries);
+                
+                // Update rate limit counter from response headers
+                updateRateLimitFromHeaders(response.headers);
             } catch (error) {
                 const endTime = performance.now();
                 const duration = Math.round(endTime - startTime);
