@@ -44,7 +44,7 @@ except Exception as e:
     redis_client = None
 
 # Rate limiting configuration
-DAILY_LIMIT = int(os.environ.get('DAILY_LIMIT', '5'))
+DAILY_LIMIT = int(os.environ.get('DAILY_LIMIT', '10'))
 ADMIN_TOKEN = os.environ.get('ADMIN_TOKEN')
 
 # OpenAI client initialization
@@ -129,7 +129,7 @@ def rate_limit_middleware():
 
         response = jsonify({
             'error': 'Rate limit exceeded',
-            'message': f'Daily limit of {DAILY_LIMIT} requests exceeded. Try again tomorrow.',
+            'message': f'Daily limit of {DAILY_LIMIT} credits exceeded. Try again tomorrow.',
             'retry_after': reset_timestamp
         })
         response.status_code = 429
