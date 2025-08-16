@@ -258,6 +258,113 @@ class TestAPIEndpoints(unittest.TestCase):
         data = json.loads(response.data)
         self.assertIn('error', data)
 
+class TestSummarizationEndpoint(unittest.TestCase):
+    """Test summarization functionality"""
+    
+    def setUp(self):
+        """Set up test environment"""
+        with patch.dict(os.environ, {
+            'REDIS_URL': 'redis://localhost:6379',
+            'DAILY_LIMIT': '5',
+            'ADMIN_TOKEN': 'test_token',
+            'OPENAI_API_KEY': 'test_openai_key'
+        }):
+            import app
+            self.app_module = app
+            self.app = app.app.test_client()
+            self.app_module.redis_client = Mock()
+            
+            # Mock OpenAI client
+            self.mock_openai = Mock()
+            self.app_module.openai_client = self.mock_openai
+    
+    def test_summarize_missing_text(self):
+        """Test summarization endpoint with missing text"""
+        response = self.app.post('/summarize_transcript', json={})
+        self.assertEqual(response.status_code, 400)
+        
+        data = json.loads(response.data)
+        self.assertIn('error', data)
+        self.assertIn('Please provide transcript text', data['error'])
+    
+    def test_summarize_empty_text(self):
+        """Test summarization endpoint with empty text"""
+        response = self.app.post('/summarize_transcript', json={'text': ''})
+        self.assertEqual(response.status_code, 400)
+        
+        data = json.loads(response.data)
+        self.assertIn('error', data)
+    
+    def test_summarize_no_openai_client(self):
+        """Test summarization when OpenAI client is not available"""
+        self.app_module.openai_client = None
+        
+        response = self.app.post('/summarize_transcript', json={'text': 'Test transcript'})
+        self.assertEqual(response.status_code, 503)
+        
+        data = json.loads(response.data)
+        self.assertIn('OpenAI summarization not available', data['error'])
+    
+    @patch('app.openai_client')
+    def test_summarize_success(self, mock_openai_instance):
+        """Test successful summarization"""
+        # Mock OpenAI response
+        mock_response = Mock()
+        mock_response.choices = [Mock()]
+        mock_response.choices[0].message.content = "This is a test summary"
+        mock_response.usage.total_tokens = 150
+        
+        mock_openai_instance.chat.completions.create.return_value = mock_response
+        self.app_module.openai_client = mock_openai_instance
+        
+        response = self.app.post('/summarize_transcript', 
+                               json={'text': 'This is a test transcript about testing.'})
+        self.assertEqual(response.status_code, 200)
+        
+        data = json.loads(response.data)
+        self.assertTrue(data['success'])
+        self.assertEqual(data['summary'], "This is a test summary")
+        self.assertEqual(data['model_used'], 'gpt-4o-mini')
+        self.assertEqual(data['tokens_used'], 150)
+    
+    @patch('app.openai_client')
+    def test_summarize_openai_error(self, mock_openai_instance):
+        """Test OpenAI API error handling"""
+        mock_openai_instance.chat.completions.create.side_effect = Exception("API Error")
+        self.app_module.openai_client = mock_openai_instance
+        
+        response = self.app.post('/summarize_transcript', 
+                               json={'text': 'Test transcript'})
+        self.assertEqual(response.status_code, 500)
+        
+        data = json.loads(response.data)
+        self.assertIn('OpenAI API error', data['error'])
+    
+    def test_summarize_text_truncation(self):
+        """Test that very long text gets truncated"""
+        # Create text longer than max_chars (30000)
+        long_text = "A" * 35000
+        
+        mock_response = Mock()
+        mock_response.choices = [Mock()]
+        mock_response.choices[0].message.content = "Summary of truncated text"
+        mock_response.usage.total_tokens = 100
+        
+        self.mock_openai.chat.completions.create.return_value = mock_response
+        
+        response = self.app.post('/summarize_transcript', json={'text': long_text})
+        self.assertEqual(response.status_code, 200)
+        
+        # Verify OpenAI was called with truncated text
+        call_args = self.mock_openai.chat.completions.create.call_args
+        messages = call_args[1]['messages']
+        user_message = messages[1]['content']
+        
+        # Should include truncation indicator
+        self.assertIn('...', user_message)
+        # Should be shorter than original
+        self.assertLess(len(user_message), len(long_text))
+
 class TestRateLimitMiddleware(unittest.TestCase):
     """Test rate limiting middleware"""
     
@@ -291,6 +398,18 @@ class TestRateLimitMiddleware(unittest.TestCase):
         
         # This will fail due to missing transcript API, but middleware should be called
         response = self.app.post('/get_transcript', json={'url': 'https://youtube.com/watch?v=test123'})
+        
+        # Should have called rate limit check
+        mock_check.assert_called_once()
+    
+    @patch('app.check_rate_limit')
+    def test_rate_limit_middleware_applies_to_summarize(self, mock_check):
+        """Test middleware applies to summarize endpoint"""
+        # Mock rate limit check to allow request
+        mock_check.return_value = (True, 1, 4)
+        
+        # This will fail due to missing OpenAI client, but middleware should be called
+        response = self.app.post('/summarize_transcript', json={'text': 'test'})
         
         # Should have called rate limit check
         mock_check.assert_called_once()

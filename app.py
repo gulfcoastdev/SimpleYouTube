@@ -9,6 +9,7 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.proxies import WebshareProxyConfig
 import requests
 from dotenv import load_dotenv
+from openai import OpenAI
 
 # Load environment variables from .env file
 load_dotenv()
@@ -45,6 +46,19 @@ except Exception as e:
 # Rate limiting configuration
 DAILY_LIMIT = int(os.environ.get('DAILY_LIMIT', '5'))
 ADMIN_TOKEN = os.environ.get('ADMIN_TOKEN')
+
+# OpenAI client initialization
+openai_client = None
+try:
+    openai_api_key = os.environ.get('OPENAI_API_KEY')
+    if openai_api_key:
+        openai_client = OpenAI(api_key=openai_api_key)
+        print("✅ OpenAI client initialized")
+    else:
+        print("⚠️  No OPENAI_API_KEY found - summarization disabled")
+except Exception as e:
+    print(f"❌ OpenAI client initialization failed: {e}")
+    openai_client = None
 
 def get_client_ip():
     """Extract real client IP from X-Forwarded-For header (Heroku) or fallback"""
@@ -100,8 +114,8 @@ def check_rate_limit(ip):
 
 def rate_limit_middleware():
     """Global rate limiting middleware"""
-    # Only apply rate limiting to transcript extraction
-    if request.endpoint != 'get_transcript':
+    # Only apply rate limiting to transcript extraction and summarization
+    if request.endpoint not in ['get_transcript', 'summarize_transcript']:
         return
 
     ip = get_client_ip()
@@ -137,7 +151,7 @@ def add_rate_limit_headers(response):
         return response
 
     # Only add rate limit headers for specific endpoints
-    if request.endpoint in ['get_transcript', 'proxy_status']:
+    if request.endpoint in ['get_transcript', 'summarize_transcript', 'proxy_status']:
         ip = get_client_ip()
         key = get_rate_limit_key(ip)
 
@@ -414,6 +428,64 @@ def get_transcript():
             'proxy_enabled': proxy_enabled,
             'countries': countries
         })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/summarize_transcript', methods=['POST'])
+def summarize_transcript():
+    """Summarize transcript text using OpenAI"""
+    try:
+        if not openai_client:
+            return jsonify({'error': 'OpenAI summarization not available. Please configure OPENAI_API_KEY.'}), 503
+
+        data = request.get_json()
+        transcript_text = data.get('text', '').strip()
+
+        if not transcript_text:
+            return jsonify({'error': 'Please provide transcript text to summarize'}), 400
+
+        # Limit transcript length (OpenAI has token limits)
+        max_chars = 30000  # Approximately 7500 tokens
+        if len(transcript_text) > max_chars:
+            transcript_text = transcript_text[:max_chars] + "..."
+
+        # Create summarization prompt
+        system_prompt = """You are an expert at summarizing YouTube video transcripts. 
+Your task is to extract the most important points and insights from the transcript.
+
+Please provide:
+1. A brief overview (2-3 sentences)
+2. Key points (3-5 bullet points)
+3. Main takeaways (2-3 bullet points)
+
+Keep the summary concise but comprehensive."""
+
+        user_prompt = f"Please summarize this YouTube transcript:\n\n{transcript_text}"
+
+        # Call OpenAI API
+        try:
+            response = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=1000,
+                temperature=0.3
+            )
+
+            summary = response.choices[0].message.content
+
+            return jsonify({
+                'success': True,
+                'summary': summary,
+                'model_used': 'gpt-4o-mini',
+                'tokens_used': response.usage.total_tokens if response.usage else None
+            })
+
+        except Exception as openai_error:
+            return jsonify({'error': f'OpenAI API error: {str(openai_error)}'}), 500
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500

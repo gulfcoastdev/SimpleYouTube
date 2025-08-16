@@ -117,6 +117,15 @@
             background: #218838;
         }
         
+        .btn-info {
+            background: #17a2b8;
+            color: white;
+        }
+        
+        .btn-info:hover {
+            background: #138496;
+        }
+        
         .loading {
             display: none;
             text-align: center;
@@ -162,6 +171,29 @@
             border-radius: 6px;
             padding: 20px;
             max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            line-height: 1.8;
+        }
+        
+        .summary-container {
+            display: none;
+            margin-top: 20px;
+        }
+        
+        .summary-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .summary-content {
+            background: #f0f8ff;
+            border: 1px solid #bee5eb;
+            border-radius: 6px;
+            padding: 20px;
+            max-height: 300px;
             overflow-y: auto;
             white-space: pre-wrap;
             line-height: 1.8;
@@ -304,6 +336,9 @@
                 <div class="transcript-header">
                     <h3>Transcript</h3>
                     <div class="transcript-controls">
+                        <button class="btn-info" onclick="summarizeTranscript()">
+                            Summarize
+                        </button>
                         <button class="btn-success" onclick="copyTranscript()">
                             Copy
                         </button>
@@ -314,12 +349,26 @@
                 </div>
                 <div class="transcript-content" id="transcript-content"></div>
                 <div id="copy-message"></div>
+                
+                <div class="summary-container" id="summary-container">
+                    <div class="summary-header">
+                        <h3>AI Summary</h3>
+                        <div class="transcript-controls">
+                            <button class="btn-success" onclick="copySummary()">
+                                Copy Summary
+                            </button>
+                        </div>
+                    </div>
+                    <div class="summary-content" id="summary-content"></div>
+                    <div id="summary-message"></div>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
         let currentTranscript = '';
+        let currentSummary = '';
         
         // Logging utility
         function log(level, message, data = null) {
@@ -350,6 +399,7 @@
             clearError();
             showLoading(true);
             hideTranscript();
+            hideSummary();
             
             const startTime = performance.now();
             
@@ -449,6 +499,14 @@
         
         function hideTranscript() {
             document.getElementById('transcript-container').style.display = 'none';
+        }
+        
+        function showSummary() {
+            document.getElementById('summary-container').style.display = 'block';
+        }
+        
+        function hideSummary() {
+            document.getElementById('summary-container').style.display = 'none';
         }
         
         function showLoading(show) {
@@ -637,17 +695,163 @@
             }
         }
         
+        async function summarizeTranscript() {
+            log('info', 'Summarize transcript requested', { 
+                transcript_length: currentTranscript ? currentTranscript.length : 0 
+            });
+            
+            if (!currentTranscript) {
+                log('warn', 'Summarize failed: no transcript available');
+                showError('No transcript to summarize. Please extract a transcript first.');
+                return;
+            }
+            
+            clearError();
+            showLoading(true);
+            
+            const startTime = performance.now();
+            
+            try {
+                log('info', 'Sending summarization API request', { 
+                    transcript_length: currentTranscript.length 
+                });
+                
+                const response = await fetch('/summarize_transcript', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ text: currentTranscript })
+                });
+                
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+                
+                log('info', `Summarization API response received (${duration}ms)`, { 
+                    status: response.status,
+                    statusText: response.statusText
+                });
+                
+                const data = await response.json();
+                
+                // Always update rate limit counter from response headers
+                updateRateLimitFromHeaders(response.headers);
+                
+                if (response.status === 429) {
+                    // Rate limit exceeded
+                    log('warn', 'Rate limit exceeded during summarization', {
+                        error: data.error,
+                        retry_after: data.retry_after,
+                        duration_ms: duration
+                    });
+                    
+                    const retryDate = new Date(data.retry_after * 1000);
+                    const hoursLeft = Math.ceil((retryDate - new Date()) / (1000 * 60 * 60));
+                    
+                    showError(`${data.message} Reset in ${hoursLeft} hours.`);
+                } else if (data.success) {
+                    log('info', 'Summarization successful', {
+                        model_used: data.model_used,
+                        tokens_used: data.tokens_used,
+                        summary_length: data.summary.length,
+                        duration_ms: duration
+                    });
+                    
+                    currentSummary = data.summary;
+                    displaySummary(data.summary);
+                    showSummary();
+                    
+                    // Show summary success message
+                    showSummaryMessage(`Summary generated using ${data.model_used}${data.tokens_used ? ` (${data.tokens_used} tokens)` : ''}`, 'success');
+                } else {
+                    log('error', 'Summarization failed', { 
+                        error: data.error,
+                        duration_ms: duration
+                    });
+                    showError(data.error || 'Failed to generate summary');
+                }
+            } catch (error) {
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+                
+                log('error', 'Network error during summarization', {
+                    error: error.message,
+                    duration_ms: duration
+                });
+                showError('Network error: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+        
+        function displaySummary(summary) {
+            const container = document.getElementById('summary-content');
+            container.textContent = summary;
+        }
+        
+        function copySummary() {
+            log('info', 'Copy summary requested', { 
+                summary_length: currentSummary ? currentSummary.length : 0 
+            });
+            
+            if (!currentSummary) {
+                log('warn', 'Copy summary failed: no summary available');
+                showSummaryMessage('No summary to copy', 'error');
+                return;
+            }
+            
+            navigator.clipboard.writeText(currentSummary).then(() => {
+                log('info', 'Summary copied successfully via Clipboard API', {
+                    summary_length: currentSummary.length
+                });
+                showSummaryMessage('Summary copied to clipboard!', 'success');
+            }).catch(() => {
+                log('warn', 'Clipboard API failed for summary, falling back to execCommand');
+                
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = currentSummary;
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    log('info', 'Summary copied successfully via execCommand fallback', {
+                        summary_length: currentSummary.length
+                    });
+                    showSummaryMessage('Summary copied to clipboard!', 'success');
+                } catch (err) {
+                    log('error', 'Copy summary failed with both methods', { error: err.message });
+                    showSummaryMessage('Failed to copy summary', 'error');
+                }
+                document.body.removeChild(textArea);
+            });
+        }
+        
+        function showSummaryMessage(message, type) {
+            const container = document.getElementById('summary-message');
+            const className = type === 'success' ? 'success-message' : 'error';
+            container.innerHTML = `<div class="${className}">${message}</div>`;
+            
+            setTimeout(() => {
+                container.innerHTML = '';
+            }, 5000);
+        }
+        
         function clearTranscript() {
             log('info', 'Clearing transcript and resetting UI');
             
             currentTranscript = '';
+            currentSummary = '';
             document.getElementById('transcript-content').textContent = '';
+            document.getElementById('summary-content').textContent = '';
             // Keep proxy status visible, just reload it
             loadProxyStatus();
             hideTranscript();
+            hideSummary();
             document.getElementById('youtube-url').value = '';
             clearError();
             document.getElementById('copy-message').innerHTML = '';
+            document.getElementById('summary-message').innerHTML = '';
         }
         
         function showCopyMessage(message, type) {
